@@ -1,0 +1,28 @@
+# cronwatcher example configuration
+# Copy this file to config.yaml and adjust to your environment.
+
+# How often cronwatcher polls job state (e.g. 30s, 1m, 5m)
+check_interval: 1m
+
+# Logging verbosity: debug | info | warn | error
+log_level: info
+
+jobs:
+  # A simple nightly database backup job
+  - name: db-backup
+    schedule: "0 2 * * *"   # cron expression (standard 5-field)
+    command: /usr/local/bin/db-backup.sh
+    timeout: 30m            # alert if the job exceeds this duration
+
+  # Hourly cache warm-up
+  - name: cache-warmup
+    schedule: "0 * * * *"
+    command: /usr/local/bin/warmup-cache.sh
+    timeout: 5m
+
+alerting:
+  # Send failure notifications to this address (leave empty to disable)
+  email: ops@example.com
+
+  # Slack incoming webhook URL (leave empty to disable)
+  slack_url: https://hooks.slack.com/services/XXX/YYY/ZZZ
