@@ -1,60 +1,47 @@
 package notify
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 )
 
-// AlertPayload holds the information about a cron job failure.
-type AlertPayload struct {
-	JobName   string
-	ExitCode  int
-	Output    string
-	Timestamp time.Time
-}
-
-// Notifier defines the interface for sending alerts.
+// Notifier is the interface for sending alert messages.
 type Notifier interface {
-	Send(payload AlertPayload) error
+	Send(message string) error
 }
 
 // WebhookNotifier sends alerts to an HTTP webhook endpoint.
 type WebhookNotifier struct {
-	URL        string
-	HTTPClient *http.Client
+	URL    string
+	client *http.Client
 }
 
-// NewWebhookNotifier creates a new WebhookNotifier with the given URL.
+// NewWebhookNotifier creates a WebhookNotifier with a sensible default timeout.
 func NewWebhookNotifier(url string) *WebhookNotifier {
 	return &WebhookNotifier{
-		URL: url,
-		HTTPClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		URL:    url,
+		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// Send posts a JSON alert payload to the configured webhook URL.
-func (w *WebhookNotifier) Send(payload AlertPayload) error {
-	body := fmt.Sprintf(
-		`{"job":%q,"exit_code":%d,"output":%q,"timestamp":%q}`,
-		payload.JobName,
-		payload.ExitCode,
-		payload.Output,
-		payload.Timestamp.Format(time.RFC3339),
-	)
-
-	resp, err := w.HTTPClient.Post(w.URL, "application/json", strings.NewReader(body))
+// Send posts a JSON payload containing the message to the configured URL.
+func (w *WebhookNotifier) Send(message string) error {
+	payload, err := json.Marshal(map[string]string{"text": message})
 	if err != nil {
-		return fmt.Errorf("webhook send failed: %w", err)
+		return fmt.Errorf("notify: marshal payload: %w", err)
+	}
+
+	resp, err := w.client.Post(w.URL, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("notify: http post: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("webhook returned non-2xx status: %d", resp.StatusCode)
+		return fmt.Errorf("notify: unexpected status %d", resp.StatusCode)
 	}
-
 	return nil
 }
