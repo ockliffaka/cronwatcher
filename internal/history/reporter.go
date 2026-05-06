@@ -18,6 +18,7 @@ type Summary struct {
 }
 
 // Summarise computes a Summary for the given job from its stored entries.
+// Returns false if no entries exist for the given job name.
 func (s *Store) Summarise(jobName string) (Summary, bool) {
 	entries := s.Get(jobName)
 	if len(entries) == 0 {
@@ -49,6 +50,15 @@ func (s *Store) Summarise(jobName string) (Summary, bool) {
 	}, true
 }
 
+// SuccessRate returns the percentage of successful runs as a value between
+// 0.0 and 100.0. Returns 0.0 if there are no runs recorded.
+func (sum Summary) SuccessRate() float64 {
+	if sum.Total == 0 {
+		return 0.0
+	}
+	return float64(sum.Successes) / float64(sum.Total) * 100.0
+}
+
 // Format returns a human-readable string for a Summary.
 func (sum Summary) Format() string {
 	var sb strings.Builder
@@ -56,6 +66,7 @@ func (sum Summary) Format() string {
 	fmt.Fprintf(&sb, "  Total runs : %d\n", sum.Total)
 	fmt.Fprintf(&sb, "  Successes  : %d\n", sum.Successes)
 	fmt.Fprintf(&sb, "  Failures   : %d\n", sum.Failures)
+	fmt.Fprintf(&sb, "  Success rate: %.1f%%\n", sum.SuccessRate())
 	fmt.Fprintf(&sb, "  Last status: %s\n", sum.LastStatus)
 	fmt.Fprintf(&sb, "  Last run   : %s\n", sum.LastRun.Format(time.RFC3339))
 	fmt.Fprintf(&sb, "  Avg duration: %s\n", sum.AvgDuration)
