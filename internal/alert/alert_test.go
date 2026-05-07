@@ -1,82 +1,87 @@
 package alert_test
 
 import (
-	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/cronwatcher/internal/alert"
 	"github.com/cronwatcher/internal/history"
+	"github.com/cronwatcher/internal/notify"
 )
 
-// stubNotifier records the last message sent and optionally returns an error.
-type stubNotifier struct {
-	sentMessage string
-	errToReturn error
-}
-
-func (s *stubNotifier) Send(msg string) error {
-	s.sentMessage = msg
-	return s.errToReturn
-}
-
-func makeStore(jobName string, exitCode int) *history.Store {
-	s := history.New(10)
-	s.Record(history.Entry{
-		JobName:     jobName,
-		ExitCode:    exitCode,
-		StartedAt:   time.Now().Add(-5 * time.Second),
-		FinishedAt:  time.Now(),
-	})
-	return s
+func makeStore(t *testing.T) *history.Store {
+	t.Helper()
+	return history.New(10)
 }
 
 func TestEvaluate_SendsAlert_OnFailure(t *testing.T) {
-	n := &stubNotifier{}
-	s := makeStore("backup", 1)
-	m := alert.NewManager(n, s)
+	var called int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&called, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
 
-	if err := m.Evaluate("backup"); err != nil {
+	store := makeStore(t)
+	store.Record("backup", history.Entry{ExitCode: 1, FinishedAt: time.Now()})
+
+	mgr := alert.NewManager(store, notify.NewWebhookNotifier(srv.URL), time.Minute)
+	if err := mgr.Evaluate("backup"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if n.sentMessage == "" {
-		t.Error("expected a notification to be sent")
+	if atomic.LoadInt32(&called) != 1 {
+		t.Fatalf("expected 1 webhook call, got %d", called)
 	}
 }
 
 func TestEvaluate_NoAlert_OnSuccess(t *testing.T) {
-	n := &stubNotifier{}
-	s := makeStore("backup", 0)
-	m := alert.NewManager(n, s)
+	var called int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&called, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
 
-	if err := m.Evaluate("backup"); err != nil {
+	store := makeStore(t)
+	store.Record("backup", history.Entry{ExitCode: 0, FinishedAt: time.Now()})
+
+	mgr := alert.NewManager(store, notify.NewWebhookNotifier(srv.URL), time.Minute)
+	if err := mgr.Evaluate("backup"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if n.sentMessage != "" {
-		t.Error("expected no notification for a successful job")
+	if atomic.LoadInt32(&called) != 0 {
+		t.Fatalf("expected no webhook call on success, got %d", called)
 	}
 }
 
 func TestEvaluate_NoAlert_UnknownJob(t *testing.T) {
-	n := &stubNotifier{}
-	s := history.New(10)
-	m := alert.NewManager(n, s)
-
-	if err := m.Evaluate("unknown"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n.sentMessage != "" {
-		t.Error("expected no notification for unknown job")
+	store := makeStore(t)
+	mgr := alert.NewManager(store, notify.NewWebhookNotifier("http://localhost"), time.Minute)
+	if err := mgr.Evaluate("nonexistent"); err == nil {
+		t.Fatal("expected error for unknown job")
 	}
 }
 
-func TestEvaluate_PropagatesNotifierError(t *testing.T) {
-	want := errors.New("webhook unreachable")
-	n := &stubNotifier{errToReturn: want}
-	s := makeStore("sync", 2)
-	m := alert.NewManager(n, s)
+func TestEvaluate_RateLimits_DuplicateAlerts(t *testing.T) {
+	var called int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&called, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
 
-	if err := m.Evaluate("sync"); !errors.Is(err, want) {
-		t.Fatalf("expected %v, got %v", want, err)
+	store := makeStore(t)
+	store.Record("backup", history.Entry{ExitCode: 2, FinishedAt: time.Now()})
+
+	mgr := alert.NewManager(store, notify.NewWebhookNotifier(srv.URL), time.Minute)
+	_ = mgr.Evaluate("backup")
+	_ = mgr.Evaluate("backup")
+	_ = mgr.Evaluate("backup")
+
+	if n := atomic.LoadInt32(&called); n != 1 {
+		t.Fatalf("expected 1 webhook call due to rate limiting, got %d", n)
 	}
 }
