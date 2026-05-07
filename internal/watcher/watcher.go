@@ -68,3 +68,12 @@ func (r *Runner) RunJob(name string) JobResult {
 
 	return result
 }
+
+// RunAll executes all configured jobs sequentially and returns their results.
+func (r *Runner) RunAll() []JobResult {
+	results := make([]JobResult, 0, len(r.cfg.Jobs))
+	for _, job := range r.cfg.Jobs {
+		results = append(results, r.RunJob(job.Name))
+	}
+	return results
+}
