@@ -18,6 +18,11 @@ type JobResult struct {
 	Err      error
 }
 
+// Failed reports whether the job result represents a failure.
+func (r JobResult) Failed() bool {
+	return r.Err != nil
+}
+
 // Runner executes jobs and reports failures via a notifier.
 type Runner struct {
 	cfg      *config.Config
