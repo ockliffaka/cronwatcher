@@ -3,30 +3,33 @@ package api
 import (
 	"net/http"
 
-	"github.com/cronwatcher/internal/alert"
-	"github.com/cronwatcher/internal/config"
-	"github.com/cronwatcher/internal/history"
-	"github.com/cronwatcher/internal/watcher"
+	"github.com/user/cronwatcher/internal/alert"
+	"github.com/user/cronwatcher/internal/audit"
+	"github.com/user/cronwatcher/internal/history"
+	"github.com/user/cronwatcher/internal/tag"
 )
 
-// ServerDeps groups all dependencies required to build the API server.
+// ServerDeps holds all dependencies required to build the HTTP server.
 type ServerDeps struct {
-	Config   *config.Config
-	Store    *history.Store
-	Watcher  *watcher.Watcher
+	History  *history.Store
 	Reporter *history.Reporter
 	Exporter *history.Exporter
 	Alert    *alert.Manager
+	Audit    *audit.Log
+	Tags     *tag.Store
 }
 
-// NewServer wires up all HTTP routes and returns a ready-to-use http.ServeMux.
-func NewServer(deps ServerDeps) *http.ServeMux {
+// NewServer wires all HTTP handlers onto a new ServeMux and returns it.
+func NewServer(deps ServerDeps) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/status", NewStatusHandler(deps.Config, deps.Store, deps.Watcher))
-	mux.HandleFunc("/metrics", NewMetricsHandler(deps.Store, deps.Reporter))
-	mux.HandleFunc("/alert", NewAlertHandler(deps.Alert, deps.Config))
-	mux.HandleFunc("/export", NewExportHandler(deps.Exporter))
+	mux.Handle("/api/health", NewHealthHandler())
+	mux.Handle("/api/status", NewStatusHandler(deps.History, deps.Reporter))
+	mux.Handle("/api/metrics", NewMetricsHandler(deps.History, deps.Reporter))
+	mux.Handle("/api/alert", NewAlertHandler(deps.Alert))
+	mux.Handle("/api/export", NewExportHandler(deps.Exporter))
+	mux.Handle("/api/audit", NewAuditHandler(deps.Audit))
+	mux.Handle("/api/tags", NewTagHandler(deps.Tags))
 
-	return mux
+	return audit.Middleware(deps.Audit, mux)
 }
