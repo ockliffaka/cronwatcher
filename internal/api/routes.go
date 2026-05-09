@@ -3,33 +3,39 @@ package api
 import (
 	"net/http"
 
-	"github.com/user/cronwatcher/internal/alert"
-	"github.com/user/cronwatcher/internal/audit"
-	"github.com/user/cronwatcher/internal/history"
-	"github.com/user/cronwatcher/internal/tag"
+	"github.com/cronwatcher/cronwatcher/internal/alert"
+	"github.com/cronwatcher/cronwatcher/internal/audit"
+	"github.com/cronwatcher/cronwatcher/internal/dependency"
+	"github.com/cronwatcher/cronwatcher/internal/history"
+	"github.com/cronwatcher/cronwatcher/internal/pause"
+	"github.com/cronwatcher/cronwatcher/internal/tag"
 )
 
-// ServerDeps holds all dependencies required to build the HTTP server.
+// ServerDeps holds all dependencies needed to build the HTTP server.
 type ServerDeps struct {
-	History  *history.Store
-	Reporter *history.Reporter
-	Exporter *history.Exporter
-	Alert    *alert.Manager
-	Audit    *audit.Log
-	Tags     *tag.Store
+	History    *history.Store
+	Reporter   *history.Reporter
+	Exporter   *history.Exporter
+	Alerts     *alert.Manager
+	AuditLog   *audit.Log
+	Tags       *tag.Store
+	Deps       *dependency.Store
+	Pauses     *pause.Store
 }
 
-// NewServer wires all HTTP handlers onto a new ServeMux and returns it.
-func NewServer(deps ServerDeps) http.Handler {
+// NewServer constructs and returns the root HTTP mux with all routes registered.
+func NewServer(d ServerDeps) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("/api/health", NewHealthHandler())
-	mux.Handle("/api/status", NewStatusHandler(deps.History, deps.Reporter))
-	mux.Handle("/api/metrics", NewMetricsHandler(deps.History, deps.Reporter))
-	mux.Handle("/api/alert", NewAlertHandler(deps.Alert))
-	mux.Handle("/api/export", NewExportHandler(deps.Exporter))
-	mux.Handle("/api/audit", NewAuditHandler(deps.Audit))
-	mux.Handle("/api/tags", NewTagHandler(deps.Tags))
+	mux.Handle("/health", NewHealthHandler())
+	mux.Handle("/status", NewStatusHandler(d.History, d.Reporter))
+	mux.Handle("/metrics", NewMetricsHandler(d.History, d.Reporter))
+	mux.Handle("/export", NewExportHandler(d.Exporter))
+	mux.Handle("/alert", NewAlertHandler(d.Alerts))
+	mux.Handle("/audit", audit.Middleware(d.AuditLog, NewAuditHandler(d.AuditLog)))
+	mux.Handle("/tags", NewTagHandler(d.Tags))
+	mux.Handle("/dependencies", NewDependencyHandler(d.Deps))
+	mux.Handle("/pause", NewPauseHandler(d.Pauses))
 
-	return audit.Middleware(deps.Audit, mux)
+	return mux
 }
