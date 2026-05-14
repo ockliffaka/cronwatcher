@@ -16,7 +16,7 @@ func NewThrottleHandler(store *throttle.Store) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		job := r.URL.Query().Get("job")
 		if job == "" {
-			http.Error(w, `{"error":"missing job parameter"}`, http.StatusBadRequest)
+			writeJSONError(w, "missing job parameter", http.StatusBadRequest)
 			return
 		}
 
@@ -39,7 +39,15 @@ func NewThrottleHandler(store *throttle.Store) http.Handler {
 			})
 
 		default:
-			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			writeJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+}
+
+// writeJSONError writes a JSON-formatted error response with the given message
+// and HTTP status code.
+func writeJSONError(w http.ResponseWriter, message string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
